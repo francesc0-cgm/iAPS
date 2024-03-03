@@ -1,0 +1,115 @@
+import SwiftDate
+import SwiftUI
+import UIKit
+
+struct LoopView: View {
+    private enum Config {
+        static let lag: TimeInterval = 30
+    }
+
+    @Binding var suggestion: Suggestion?
+    @Binding var enactedSuggestion: Suggestion?
+    @Binding var closedLoop: Bool
+    @Binding var timerDate: Date
+    @Binding var isLooping: Bool
+    @Binding var lastLoopDate: Date
+    @Binding var manualTempBasal: Bool
+    @Binding var timeZone: TimeZone?
+
+    private var dateFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter
+    }
+
+    @Environment(\.colorScheme) var colorScheme
+
+    private let rect = CGRect(x: 0, y: 0, width: 40, height: 40)
+
+    var body: some View {
+        VStack(alignment: .center) {
+            ZStack {
+                Circle()
+                    .strokeBorder(color, lineWidth: 4)
+                    .frame(width: rect.width, height: rect.height, alignment: .bottom)
+                    .mask(mask(in: rect).fill(style: FillStyle(eoFill: true)))
+                    .shadow(
+                        color: Color.primary.opacity(colorScheme == .dark ? 0.25 : 0.25),
+                        radius: colorScheme == .dark ? 1 : 1
+                    )
+                if isLooping {
+                    ProgressView()
+                } else if actualSuggestion?.timestamp != nil {
+                    Text(timeString).font(.system(size: 12).weight(.semibold))
+                        .foregroundColor(.primary)
+                        .offset(x: 0, y: 0)
+                } else {
+                    Text("--").font(.system(size: 12).weight(.semibold))
+                        .offset(x: 0, y: 0)
+                }
+            }
+        }
+        .frame(width: 44)
+    }
+
+    private var timeString: String {
+        let minAgo = Int((timerDate.timeIntervalSince(lastLoopDate) - Config.lag) / 60) + 1
+        if minAgo > 1440 {
+            return "--"
+        }
+        return "\(minAgo)" + NSLocalizedString("m", comment: "Minutes ago since last loop")
+    }
+
+    private var color: Color {
+        guard actualSuggestion?.timestamp != nil else {
+            return .loopGray
+        }
+        guard manualTempBasal == false else {
+            return .loopManualTemp
+        }
+        let delta = timerDate.timeIntervalSince(lastLoopDate) - Config.lag
+
+        if delta <= 5.minutes.timeInterval {
+            guard actualSuggestion?.deliverAt != nil else {
+                return .loopYellow
+            }
+            return .loopGreen
+        } else if delta <= 10.minutes.timeInterval {
+            return .loopYellow
+        } else {
+            return .loopRed
+        }
+    }
+
+    func mask(in rect: CGRect) -> Path {
+        var path = Rectangle().path(in: rect)
+        if !closedLoop || manualTempBasal {
+            path.addPath(Rectangle().path(in: CGRect(x: rect.minX, y: rect.midY - 5, width: rect.width, height: 10)))
+        }
+        return path
+    }
+
+    private var actualSuggestion: Suggestion? {
+        if closedLoop, enactedSuggestion?.recieved == true {
+            return enactedSuggestion ?? suggestion
+        } else {
+            return suggestion
+        }
+    }
+}
+
+extension View {
+    func animateForever(
+        using animation: Animation = Animation.easeInOut(duration: 1),
+        autoreverses: Bool = false,
+        _ action: @escaping () -> Void
+    ) -> some View {
+        let repeated = animation.repeatForever(autoreverses: autoreverses)
+
+        return onAppear {
+            withAnimation(repeated) {
+                action()
+            }
+        }
+    }
+}
